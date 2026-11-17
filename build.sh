@@ -30,6 +30,7 @@ tar xf "${WINE_TARBALL}"
 cd "wine-${WINE_VERSION}"
 patch -p1 <"${HERE}/wine-xim-spot-callbacks.patch"
 patch -p1 <"${HERE}/wine-xim-query-caret.patch"
+patch -p1 <"${HERE}/wine-xim-point-line-bottom.patch"
 patch -p1 <"${HERE}/wine-imm32-no-ime-ui-window.patch"
 patch -p1 <"${HERE}/explorer-systray-foreground.patch"
 

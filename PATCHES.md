@@ -36,6 +36,11 @@ w.height)`，也就是窗口左下角。
 - `wine-xim-spot-callbacks.patch`：把上面那个风格判断放宽成
   `XIMPreeditPosition | XIMPreeditCallbacks`，两种风格都发 `XNSpotLocation`，
   组字方式仍是 callbacks。
+- `wine-xim-point-line-bottom.patch`：第三段。老版本 Chromium（CEF 107，比如
+  企业微信）还走 `ImmSetCompositionWindow( CFS_POINT )`，imm32 在
+  `dlls/imm32/imm.c` 里把那个点转成 1 像素高的矩形，spot 就落在光标行上沿。
+  这个补丁在 `X11DRV_SetIMECompositionRect()` 认出这种点：先调
+  `IMR_QUERYCHARPOSITION` 要精确光标矩形，应用不回就用窗口字体行高补到行底。
 
 **spot 的纵向位置**：ibus 的 XIM 前端把 `XNSpotLocation` 直接当成候选窗位置，
 callbacks 模式下它拿不到预编辑高度。spot 取光标行上沿（`pos.pt.y`）时候选窗

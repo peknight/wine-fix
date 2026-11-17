@@ -1,0 +1,106 @@
+--- a/dlls/winex11.drv/xim.c
++++ b/dlls/winex11.drv/xim.c
+@@ -114,17 +114,16 @@
+     if (!is_ime_hkl( hkl )) NtUserActivateKeyboardLayout( get_ime_hkl( LOWORD(hkl) ), 0 );
+ }
+ 
+-/* Chromium 138（Electron 37）不再调用 ImmSetCompositionWindow，光标位置只通过
++/* Chromium 138（Electron 37）起不再调用 ImmSetCompositionWindow，光标位置只通过
+  * WM_IME_REQUEST/IMR_QUERYCHARPOSITION 暴露给输入法。Wine 从来不发这个请求，
+  * ibus 拿不到 spot，候选窗就贴在焦点窗口左下角。这里在组字过程中向应用查询光标
+- * 矩形，把返回的屏幕坐标直接喂给 XNSpotLocation。 */
+-static void update_ime_spot_from_app( HWND hwnd )
++ * 矩形，把行底位置喂给 XNSpotLocation。 */
++static BOOL query_app_caret_rect( HWND hwnd, RECT *rect )
+ {
+     IMECHARPOSITION pos;
+-    RECT rect;
+ 
+     /* 跨线程 SendMessage 会等对方线程处理，这里只处理本线程的窗口 */
+-    if (NtUserGetWindowThread( hwnd, NULL ) != (DWORD)(ULONG_PTR)NtCurrentTeb()->ClientId.UniqueThread) return;
++    if (NtUserGetWindowThread( hwnd, NULL ) != (DWORD)(ULONG_PTR)NtCurrentTeb()->ClientId.UniqueThread) return FALSE;
+ 
+     memset( &pos, 0, sizeof(pos) );
+     pos.dwSize = sizeof(pos);
+@@ -132,19 +131,28 @@
+                             NULL, NtUserSendMessage, FALSE ) || !pos.cLineHeight)
+     {
+         TRACE( "hwnd %p: app gave no caret rect\n", hwnd );
+-        return;
++        return FALSE;
+     }
+     TRACE( "hwnd %p: app caret rect %d,%d height %u\n", hwnd, (int)pos.pt.x, (int)pos.pt.y,
+            (unsigned int)pos.cLineHeight );
+ 
+     /* ibus 的 XIM 前端把 XNSpotLocation 直接当成候选窗位置：callbacks 模式下它
+      * 不知道预编辑画了多高，spot 落在光标行上沿时候选窗就压住正在输入的那一行。
+-     * 这里带上行高，spot 落到行底，候选窗出现在下一行，和 GTK 应用一致。 */
+-    rect.left = pos.pt.x;
+-    rect.top = pos.pt.y + pos.cLineHeight;
+-    rect.right = rect.left + 1;
+-    rect.bottom = rect.top + 1;
+-    X11DRV_SetIMECompositionRect( hwnd, rect );
++     * 这里带上行高，spot 落到行底，候选窗出现在下一行，和 GTK 应用一致。
++     * 矩形高度撑成行高，表示这里给的已经是行底；1 像素高的点留给 driver 侧
++     * 当成 CFS_POINT 再补。 */
++    rect->left = pos.pt.x;
++    rect->top = pos.pt.y + pos.cLineHeight;
++    rect->right = rect->left + 1;
++    rect->bottom = rect->top + pos.cLineHeight;
++    return TRUE;
++}
++
++static void update_ime_spot_from_app( HWND hwnd )
++{
++    RECT rect;
++
++    if (query_app_caret_rect( hwnd, &rect )) X11DRV_SetIMECompositionRect( hwnd, rect );
+ }
+ 
+ static void post_ime_update( HWND hwnd, UINT cursor_pos, WCHAR *comp_str, WCHAR *result_str )
+@@ -610,6 +618,20 @@
+ /***********************************************************************
+  *      SetIMECompositionRect (X11DRV.@)
+  */
++/* 应用只给光标点（CFS_POINT）时拿不到行高，退回到窗口当前字体的行高。 */
++static int get_window_font_height( HWND hwnd )
++{
++    TEXTMETRICW metrics;
++    HDC hdc;
++    int height = 0;
++
++    if (!(hdc = NtUserGetDC( hwnd ))) return 0;
++    if (NtGdiGetTextMetricsW( hdc, &metrics, 0 )) height = metrics.tmHeight;
++    NtUserReleaseDC( hwnd, hdc );
++    TRACE( "hwnd %p: window font height %d\n", hwnd, height );
++    return height;
++}
++
+ BOOL X11DRV_SetIMECompositionRect( HWND hwnd, RECT rect )
+ {
+     struct x11drv_win_data *data = NULL;
+@@ -623,6 +645,24 @@
+     if (!(input_style & (XIMPreeditPosition | XIMPreeditCallbacks)))
+         return FALSE;
+ 
++    /* imm32 收到 CFS_POINT 时只传一个 1 像素高的点，也就是光标行上沿。ibus 把
++     * spot 当候选窗位置，原样转发会让候选窗压住正在输入的那一行（CEF 107 这类
++     * 还走 ImmSetCompositionWindow 的应用就是这种情况）。先问应用要精确的光标
++     * 矩形，问不到就用窗口字体行高补到行底。 */
++    if (rect.bottom - rect.top <= 1)
++    {
++        RECT caret;
++        int height = 0;
++
++        /* 应用给的 x/y 已经是光标的客户端坐标，只补行高，不换成 IMR 返回的
++         * 坐标（那边的坐标系不一定和这里一致）。 */
++        if (query_app_caret_rect( hwnd, &caret )) height = caret.bottom - caret.top;
++        else height = get_window_font_height( hwnd );
++        if (height > 0) rect.top += height;
++        rect.right = rect.left + 1;
++        rect.bottom = rect.top + 1;
++    }
++
+     if (!(data = get_win_data( hwnd )) || !data->xic)
+     {
+         if (data) release_win_data( data );
