@@ -2,7 +2,7 @@
 
 pkgname=wine-fix
 pkgver=11.22
-pkgrel=1
+pkgrel=3
 pkgdesc='按进程挂载的 wine 补丁：输入法候选框跟随光标、Electron 不重复画组字串、托盘右键菜单可用 | per-process wine patches for IME and tray behaviour'
 arch=('x86_64')
 url='https://github.com/peknight/wine-fix'
@@ -31,7 +31,7 @@ source=(
 )
 sha256sums=(
     'fee98401fb50ae1ab2ce0ac63fcf116a58cda55b894c250fc7c0d8a57fbff0e5'
-    '65955b5754ce19ad0d958d699401b5c9657503aec5f68eef2b823e8db777d1d9'
+    'e328fa273cebf9ab668d46e68c025174fe7923285e50239b14aa00e02615cb1e'
     '0017661bb15b2d35ca57f857deef92b454c1333b19bfe2032411f579f3f5cce1'
     'ebf6a69dd66afa1d7ccade34381c104ea2c4480fed5ab309c7d96a5c1ce4b779'
     '4d210dfebff41287ac45fd487802b65b9772e73e1a1913919b33923adf44c8c9'

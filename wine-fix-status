@@ -13,6 +13,7 @@ fi
 
 main() {
 	local stamp version lib_dir prefix pid src dst seen
+	local -a mount_srcs=() mount_dsts=()
 
 	stamp=$(wf_stamp_version || true)
 	version=$(wf_wine_version || true)
@@ -46,6 +47,8 @@ main() {
 	seen=0
 	while IFS=$'\t' read -r src dst; do
 		printf '  %s -> %s\n' "${src}" "${dst}"
+		mount_srcs+=("${src}")
+		mount_dsts+=("${dst}")
 		seen=1
 	done < <(wf_collect_mounts || true)
 	((seen)) || printf '  无\n'
@@ -58,17 +61,17 @@ main() {
 		return 0
 	fi
 
+	# 按实际挂载清单比对，WINE_FIX_DISABLE 关掉的项不参与判断，否则会把
+	# 主动跳过的补丁当成「没生效」。比内容而不是 inode：wine-fix 升级会换
+	# 新 inode，但正在跑的 wineserver 绑的旧文件若内容相同，补丁照样有效。
+	if ((${#mount_srcs[@]} == 0)); then
+		printf 'wineserver:       未启用（没有可挂载的补丁）（pid %s）\n' "${pid}"
+		return 0
+	fi
 	seen='已带上补丁'
-	for src in "${WINE_FIX_LIBDIR}/winex11-xim-spot.so" \
-		"${WINE_FIX_LIBDIR}/imm32-no-ime-ui-window.dll"; do
-		[[ -f ${src} ]] || continue
-		case ${src} in
-		*winex11*) dst="${lib_dir}/x86_64-unix/winex11.so" ;;
-		*) dst="${lib_dir}/x86_64-windows/imm32.dll" ;;
-		esac
-		if [[ $(stat -Lc '%d:%i' "${src}" 2>/dev/null) != \
-			$(stat -Lc '%d:%i' "/proc/${pid}/root${dst}" 2>/dev/null) ]]; then
-			seen='未带上补丁，需要重启应用（wineserver 是先前起的）'
+	for ((i = 0; i < ${#mount_srcs[@]}; i++)); do
+		if ! cmp -s "${mount_srcs[i]}" "/proc/${pid}/root${mount_dsts[i]}" 2>/dev/null; then
+			seen='补丁与当前包不一致，需要重启应用（wineserver 是先前起的）'
 			break
 		fi
 	done
