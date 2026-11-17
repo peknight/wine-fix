@@ -1,0 +1,27 @@
+diff --git a/dlls/imm32/ime.c b/dlls/imm32/ime.c
+--- a/dlls/imm32/ime.c
++++ b/dlls/imm32/ime.c
+@@ -344,17 +344,12 @@ static void ime_ui_paint( HIMC himc, HWND hwnd )
+ 
+ static void ime_ui_update_window( INPUTCONTEXT *ctx, HWND hwnd )
+ {
+-    WCHAR *str;
+-    UINT len;
+-
+-    if (!(str = input_context_get_comp_str( ctx, FALSE, &len )) || !*str)
+-        ShowWindow( hwnd, SW_HIDE );
+-    else
+-    {
+-        ShowWindow( hwnd, SW_SHOWNOACTIVATE );
+-        RedrawWindow( hwnd, NULL, NULL, RDW_ERASENOW | RDW_INVALIDATE );
+-    }
+-    free( str );
++    /* Chromium/Electron 自己把组字串内联画在页面里，Wine 这份回退的 IME UI
++     * 窗会在焦点窗口左下角再画一份同样的字（CFS_DEFAULT 时 ime_ui_paint()
++     * 按 Windows 的老规矩把它摆在左下角）。本 prefix 只跑 WorkBuddy，这里
++     * 直接不显示；组字串仍照常经 WM_IME_COMPOSITION 送进应用。 */
++    (void)ctx;
++    ShowWindow( hwnd, SW_HIDE );
+ }
+ 
+ static void ime_ui_composition( HIMC himc, HWND hwnd, LPARAM lparam )

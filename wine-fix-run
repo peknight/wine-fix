@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# wine 的包装器：在只属于本次启动的挂载命名空间里，把补丁版 wine 组件单点挂到
+# 系统路径上，然后 exec wine。系统的 /usr/lib/wine 和用户 prefix 都不会被改写。
+#
+#   wine-fix-run <wine 参数...>     参数和退出码原样透传
+#
+# 补丁产物按 wine 版本编译。winex11 是 unix 库、ABI 与版本绑定，版本对不上就
+# 不挂它（PE 的两份照挂）；bwrap 不可用或没有可挂的文件时退回原版 wine：功能
+# 本身仍然可用，只是补丁不生效。
+#
+# 环境变量:
+#   WINE_FIX_WINE     要包装的 wine，默认 /usr/bin/wine
+#   WINE_FIX_DISABLE  逗号分隔，可跳过某项: winex11, imm32, explorer
+#   WINEPREFIX        照旧；用来定位 prefix 里被复制的那份 dll
+set -euo pipefail
+
+self_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+if [[ -r ${self_dir}/wine-fix-common.sh ]]; then
+	# shellcheck source=wine-fix-common.sh
+	source "${self_dir}/wine-fix-common.sh"
+else
+	source '/usr/lib/wine-fix/wine-fix-common.sh'
+fi
+
+fallback() {
+	wf_message "$1，用原版 wine"
+	shift
+	exec "${WINE_FIX_WINE}" "$@"
+}
+
+main() {
+	local lib_dir src dst
+	local mounts=()
+
+	if ! wf_version_matches; then
+		wf_message "系统 wine 是 $(wf_wine_version || echo 未知)、补丁按" \
+			"$(wf_stamp_version || echo 未知) 编的，winex11 补丁不启用"
+	fi
+
+	lib_dir=$(wf_find_lib_dir) || fallback '找不到 wine 的库目录' "$@"
+	command -v bwrap >/dev/null || fallback '缺少 bubblewrap' "$@"
+	# 用户命名空间被内核或 LSM 限制时 bwrap 会直接失败，先探一次
+	bwrap --dev-bind / / true >/dev/null 2>&1 ||
+		fallback 'bwrap 起不来（用户命名空间受限）' "$@"
+
+	while IFS=$'\t' read -r src dst; do
+		mounts+=(--ro-bind "${src}" "${dst}")
+	done < <(wf_collect_mounts)
+
+	((${#mounts[@]})) || fallback '没有可挂载的补丁文件' "$@"
+
+	exec bwrap --dev-bind / / "${mounts[@]}" "${WINE_FIX_WINE}" "$@"
+}
+
+main "$@"

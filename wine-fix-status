@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# 打印 wine-fix 在本机的实际生效情况：版本是否匹配、要挂哪些文件、当前
+# wineserver 是不是从 wine-fix-run 起来的。只读，不改任何东西。
+set -euo pipefail
+
+self_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+if [[ -r ${self_dir}/wine-fix-common.sh ]]; then
+	# shellcheck source=wine-fix-common.sh
+	source "${self_dir}/wine-fix-common.sh"
+else
+	source '/usr/lib/wine-fix/wine-fix-common.sh'
+fi
+
+main() {
+	local stamp version lib_dir prefix pid src dst seen
+
+	stamp=$(wf_stamp_version || true)
+	version=$(wf_wine_version || true)
+	prefix=$(wf_prefix)
+
+	printf 'wine-fix 补丁版本: %s\n' "${stamp:-缺失}"
+	printf '系统 wine:        %s (%s)\n' "${version:-未知}" "${WINE_FIX_WINE}"
+	if [[ -n ${stamp} && ${version} == "${stamp}" ]]; then
+		printf '版本匹配:         是\n'
+	else
+		printf '版本匹配:         否，winex11 补丁不启用（PE 补丁照挂）\n'
+	fi
+
+	if lib_dir=$(wf_find_lib_dir); then
+		printf 'wine 库目录:      %s\n' "${lib_dir}"
+	else
+		printf 'wine 库目录:      找不到\n'
+	fi
+	printf 'prefix:           %s\n' "${prefix}"
+	if command -v bwrap >/dev/null; then
+		if bwrap --dev-bind / / true >/dev/null 2>&1; then
+			printf 'bubblewrap:       可用\n'
+		else
+			printf 'bubblewrap:       起不来（用户命名空间受限）\n'
+		fi
+	else
+		printf 'bubblewrap:       未安装\n'
+	fi
+
+	printf '挂载点:\n'
+	seen=0
+	while IFS=$'\t' read -r src dst; do
+		printf '  %s -> %s\n' "${src}" "${dst}"
+		seen=1
+	done < <(wf_collect_mounts || true)
+	((seen)) || printf '  无\n'
+
+	# 已经在跑的 wineserver 是先前从哪套命名空间起来的，决定了新起的 wine
+	# 进程能不能看到补丁：从它的 /proc/<pid>/root 看到的就是那套挂载。
+	pid=$(wf_find_server_pid "${prefix}" || true)
+	if [[ -z ${pid} ]]; then
+		printf 'wineserver:       未运行\n'
+		return 0
+	fi
+
+	seen='已带上补丁'
+	for src in "${WINE_FIX_LIBDIR}/winex11-xim-spot.so" \
+		"${WINE_FIX_LIBDIR}/imm32-no-ime-ui-window.dll"; do
+		[[ -f ${src} ]] || continue
+		case ${src} in
+		*winex11*) dst="${lib_dir}/x86_64-unix/winex11.so" ;;
+		*) dst="${lib_dir}/x86_64-windows/imm32.dll" ;;
+		esac
+		if [[ $(stat -Lc '%d:%i' "${src}" 2>/dev/null) != \
+			$(stat -Lc '%d:%i' "/proc/${pid}/root${dst}" 2>/dev/null) ]]; then
+			seen='未带上补丁，需要重启应用（wineserver 是先前起的）'
+			break
+		fi
+	done
+	printf 'wineserver:       %s（pid %s）\n' "${seen}" "${pid}"
+}
+
+main "$@"

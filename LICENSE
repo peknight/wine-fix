@@ -1,0 +1,16 @@
+wine-fix bundles three binaries built from Wine 11.22 sources, each with a small
+patch of its own (see PATCHES.md):
+
+  winex11-xim-spot.so             from dlls/winex11.drv
+  imm32-no-ime-ui-window.dll      from dlls/imm32
+  explorer-systray-foreground.exe from programs/explorer
+
+Wine is distributed under the GNU Lesser General Public License, version 2.1 or
+later. The patched sources stay under the same license, so the binaries, the
+patch files and the build script in this package are licensed under
+LGPL-2.1-or-later. The full license text is at
+
+  https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt
+
+The wrapper scripts (wine-fix-run, wine-fix-status, wine-fix-common.sh) are
+covered by the same terms.
